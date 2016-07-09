@@ -1,0 +1,179 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use v5.16;
+use utf8;
+use feature 'state';
+
+use DBI;
+use File::Spec;
+#use File::Basename qw/basename/;
+use File::Path qw/make_path/;
+use Digest::SHA;
+use Image::ExifTool qw(:Public);
+use Encode::Locale;
+
+BEGIN {
+    binmode STDIN,  ":encoding(console_in)"  if -t STDIN;
+    binmode STDOUT, ":encoding(console_out)" if -t STDOUT;
+    binmode STDERR, ":encoding(console_out)" if -t STDERR;
+}
+
+my $basedir = '.';
+
+sub file_sha {
+    my $sha = Digest::SHA->new(1);
+    $sha->addfile(shift || $_);   # File path.
+    $sha->hexdigest
+}
+
+sub file_exif_date {
+    state $enter = sub {
+        my($hash, $key, $value) = @_;
+
+        $value += 0;
+        if (exists $hash->{$key}) {
+            $hash->{$key} = $value if $hash->{$key} > $value;
+        }
+        else {
+            $hash->{$key} = $value;
+        }
+    };
+    state $fields = [
+        'CreateDate',
+        'Create Date',
+        'DateTimeOriginal',
+        'Date/Time Original',
+        'ModifyDate',
+        'Modify Date',
+        'File Modification Date/Time',
+        'FileModifyDate',
+    ];
+
+    my %out;
+
+    local $_ = shift if @_;
+    die "Not a file: $_" unless -f;
+
+    foreach (grep defined, @{ImageInfo $_}{@$fields}) {
+        /(\d{4}).(\d{2}).(\d{2})/ or do {
+            say STDERR "What is \"$_\"?";
+            next;
+        };
+
+        $enter->(\%out, y => $1);
+        $enter->(\%out, m => $2);
+        $enter->(\%out, d => $3);
+    }
+
+    @out{qw(y m d)}
+}
+
+sub dirdb_create {
+    make_path(File::Spec->catdir($basedir, $_)) foreach qw(
+        by_sha by_date by_tag
+    )
+}
+
+sub dirdb_sha2path {
+    my($sha, $mkdir) = @_;
+
+    my $dir = File::Spec->catdir($basedir, 'by_sha', substr($sha, 0, 2));
+    my $newpath = File::Spec->catfile($dir, substr($sha, 2));
+    make_path $dir if $mkdir;
+
+    wantarray ? ($newpath, "$newpath.meta") : $newpath;
+}
+
+sub dirdb_meta_load {
+    my($sha) = @_;
+
+    my($path, $metapath) = &dirdb_sha2path;
+    my %meta = (
+        sha => $sha,
+        path => $path,
+        metapath => $metapath,
+    );
+
+    if (-e $metapath) {
+        open my $metafd, '<:encoding(locale)', $metapath
+            or die "Opening $metapath for read: $!";
+        local $_; while (<$metafd>) {
+            /^\s*(.*?)\s*(?<!\\):\s*(.*)\s*$/;
+            my $key = $1 =~ s/\\:/:/rg;
+
+            if (exists $meta{$key}) {
+                if (ref(my $val = $meta{$key}) eq 'ARRAY') {
+                    push @$val, $2
+                } else {
+                    $meta{$key} = [$val, $2]
+                }
+            } else {
+                $meta{$key} = $2
+            }
+        }
+        close $metafd;
+    }
+
+    \%meta
+}
+
+sub dirdb_ls {
+    map join('', (File::Spec->splitdir($_))[-2 .. -1]),
+    grep !/\.meta$/,
+    glob File::Spec->catfile($basedir, 'by_sha', '*', '*')
+}
+
+sub dirdb_meta_save {
+    my($meta) = @_;
+
+    open my $metafd, '>:encoding(locale)', $meta->{metapath}
+        or die "Opening $meta->{metapath} for write: $!";
+    foreach (keys %$meta) {
+        next if /(sha|(meta)?path)/n;
+
+        if (ref $meta->{$_} eq 'ARRAY') {
+            print $metafd $_, ': ', join(', ', map s/,/\\,/, @{$meta->{$_}})
+        } else {
+            print $metafd $_, ': ', $meta->{$_}
+        }
+    }
+    close $metafd;
+
+    $meta
+}
+
+sub dirdb_meta_new {
+    my($sha, $action, $orig_path) = @_;
+
+    my $meta = dirdb_meta_load shift, 1;
+    if (local $_ = $action) {
+        die "Not a file: ", $orig_path || '<undef>' unless -f $orig_path;
+
+        if (/^symlink$/) {
+            symlink $orig_path, $meta->{path}
+        } else {
+            die "Unsupported: $_"
+        }
+    }
+
+    unless (exists $meta->{date}) {
+        $meta->{date} = sprintf "%04d-%02d-%02d", file_exif_date $orig_path
+    }
+
+    $meta
+}
+
+use Data::Dump;
+
+my @inserted;
+while (<>) {
+    chomp;
+    eval {
+        dirdb_meta_save(dirdb_meta_new file_sha($_) => symlink => $_)
+    } || do {
+        say STDERR "Cannot insert '$_': ", $@ =~ s/ at.*$/./rs
+    };
+}
+
