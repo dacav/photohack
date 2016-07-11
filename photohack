@@ -142,7 +142,9 @@ sub dirdb_meta_save {
     foreach (keys %$meta) {
         next if /(sha|(meta)?path)/n;
 
-        if (ref $meta->{$_} eq 'ARRAY') {
+        if ($_ eq 'date') {
+            printf $metafd 'date: %04d-%02d-%02d', @{$meta->{$_}};
+        } elsif (ref $meta->{$_} eq 'ARRAY') {
             print $metafd $_, ': ', join(', ', map s/,/\\,/, @{$meta->{$_}})
         } else {
             print $metafd $_, ': ', $meta->{$_}
@@ -168,7 +170,7 @@ sub dirdb_meta_new {
     }
 
     unless (exists $meta->{date}) {
-        $meta->{date} = sprintf "%04d-%02d-%02d", file_exif_date $orig_path
+        $meta->{date} = [file_exif_date $orig_path]
     }
 
     $meta
