@@ -103,6 +103,15 @@ sub dirdb_meta_load {
             /^\s*(.*?)\s*(?<!\\):\s*(.*)\s*$/;
             my $key = $1 =~ s/\\:/:/rg;
 
+            if ($key eq 'date') {
+                my $val = $2;
+                $val =~ /(\d{4})-(\d{2})-(\d{2})/ or
+                    die "Invalid date format in $metapath: ",
+                        "'$val' is not YYYY-MM-DD";
+                $meta{$key} = [map $_ + 0, $1, $2, $3];
+                next
+            }
+
             if (exists $meta{$key}) {
                 if (ref(my $val = $meta{$key}) eq 'ARRAY') {
                     push @$val, $2
@@ -165,15 +174,19 @@ sub dirdb_meta_new {
     $meta
 }
 
-use Data::Dump;
-
-my @inserted;
+my @resync;
 while (<>) {
     chomp;
     eval {
-        dirdb_meta_save(dirdb_meta_new file_sha($_) => symlink => $_)
-    } || do {
+        push @resync, dirdb_meta_new file_sha($_) => symlink => $_
+    } or do {
         say STDERR "Cannot insert '$_': ", $@ =~ s/ at.*$/./rs
     };
 }
 
+push @resync, map dirdb_meta_load($_), dirdb_ls unless @resync;
+
+foreach (@resync) {
+    say STDERR 'syncing ', $_->{sha};
+    dirdb_meta_save $_;
+}
