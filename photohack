@@ -145,7 +145,8 @@ sub dirdb_meta_save {
         if ($_ eq 'date') {
             say $metafd sprintf 'date: %04d-%02d-%02d', @{$meta->{$_}};
         } elsif (ref $meta->{$_} eq 'ARRAY') {
-            say $metafd $_, ': ', join(', ', map s/,/\\,/, @{$meta->{$_}})
+            my $multikey = $_;
+            say $metafd $multikey, ': ', $_ foreach @{$meta->{$_}};
         } else {
             say $metafd $_, ': ', $meta->{$_}
         }
@@ -181,8 +182,13 @@ sub dirdb_relink {
     do {
         make_path $_;
         my $return_path = File::Spec->abs2rel($meta->{path}, $_);
-        symlink $return_path => File::Spec->catfile($basedir, $_, $meta->{filename})
+        my $link = File::Spec->catfile($basedir, $_, $meta->{filename});
+
+        symlink $return_path => $link
     } foreach (
+        (map File::Spec->catdir('by_tag', $_),
+            ref($meta->{tag}) eq 'ARRAY' ? @{$meta->{tag}} : $meta->{tag}
+        ),
         File::Spec->catdir(
             'by_date',
             sprintf(
