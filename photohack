@@ -139,7 +139,7 @@ sub dirdb_meta_save {
 
     open my $metafd, '>:encoding(locale)', $meta->{metapath}
         or die "Opening $meta->{metapath} for write: $!";
-    foreach (keys %$meta) {
+    foreach (sort keys %$meta) {
         next if /(sha|(meta)?path)/n;
 
         if ($_ eq 'date') {
@@ -186,8 +186,12 @@ sub dirdb_relink {
 
         symlink $return_path => $link
     } foreach (
-        (map File::Spec->catdir('by_tag', $_),
-            ref($meta->{tag}) eq 'ARRAY' ? @{$meta->{tag}} : $meta->{tag}
+        (
+            exists $meta->{tag}
+                ? ref($meta->{tag}) eq 'ARRAY'
+                    ? map File::Spec->catdir('by_tag', $_), @{$meta->{tag}}
+                    : $meta->{tag}
+                : ()
         ),
         File::Spec->catdir(
             'by_date',
