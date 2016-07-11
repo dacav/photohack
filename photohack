@@ -8,7 +8,7 @@ use feature 'state';
 
 use DBI;
 use File::Spec;
-#use File::Basename qw/basename/;
+use File::Basename qw/basename/;
 use File::Path qw/make_path/;
 use Digest::SHA;
 use Image::ExifTool qw(:Public);
@@ -143,11 +143,11 @@ sub dirdb_meta_save {
         next if /(sha|(meta)?path)/n;
 
         if ($_ eq 'date') {
-            printf $metafd 'date: %04d-%02d-%02d', @{$meta->{$_}};
+            say $metafd sprintf 'date: %04d-%02d-%02d', @{$meta->{$_}};
         } elsif (ref $meta->{$_} eq 'ARRAY') {
-            print $metafd $_, ': ', join(', ', map s/,/\\,/, @{$meta->{$_}})
+            say $metafd $_, ': ', join(', ', map s/,/\\,/, @{$meta->{$_}})
         } else {
-            print $metafd $_, ': ', $meta->{$_}
+            say $metafd $_, ': ', $meta->{$_}
         }
     }
     close $metafd;
@@ -169,11 +169,29 @@ sub dirdb_meta_new {
         }
     }
 
-    unless (exists $meta->{date}) {
-        $meta->{date} = [file_exif_date $orig_path]
-    }
+    $meta->{filename} = basename $orig_path;
+    $meta->{date} = [file_exif_date $orig_path] unless exists $meta->{date};
 
     $meta
+}
+
+sub dirdb_relink {
+    my($meta) = @_;
+
+    do {
+        make_path $_;
+        my $return_path = File::Spec->abs2rel($meta->{path}, $_);
+        symlink $return_path => File::Spec->catfile($basedir, $_, $meta->{filename})
+    } foreach (
+        File::Spec->catdir(
+            'by_date',
+            sprintf(
+                File::Spec->catdir("%04d", "%02d", "%02d"),
+                @{$meta->{date}}
+            )
+        ),
+    );
+
 }
 
 my @resync;
@@ -191,4 +209,5 @@ push @resync, map dirdb_meta_load($_), dirdb_ls unless @resync;
 foreach (@resync) {
     say STDERR 'syncing ', $_->{sha};
     dirdb_meta_save $_;
+    dirdb_relink $_;
 }
