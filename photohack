@@ -189,13 +189,12 @@ sub dirdb_relink {
         (
             exists $meta->{tag}
                 ? ref($meta->{tag}) eq 'ARRAY'
-                    ? map File::Spec->catdir('by_tag', $_), @{$meta->{tag}}
-                    : $meta->{tag}
+                    ? map File::Spec->catdir(by_tag => $_), @{$meta->{tag}}
+                    : File::Spec->catdir(by_tag => $meta->{tag})
                 : ()
         ),
         File::Spec->catdir(
-            'by_date',
-            sprintf(
+            by_date => sprintf(
                 File::Spec->catdir("%04d", "%02d", "%02d"),
                 @{$meta->{date}}
             )
