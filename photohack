@@ -207,10 +207,12 @@ my @resync;
 while (<>) {
     chomp;
     eval {
-        push @resync, dirdb_meta_new file_sha($_) => symlink => $_
+        push @resync, dirdb_meta_new file_sha($_) => symlink => $_;
+        unless (@resync % 10) { printf "\r%-4d", scalar(@resync); $| ++ };
+        1   # Success.
     } or do {
-        say STDERR "Cannot insert '$_': ", $@ =~ s/ at.*$/./rs
-    };
+        say STDERR "Cannot insert '$_': ", $!, $@;# =~ s/ at.*$/./rs
+    }
 }
 
 push @resync, map dirdb_meta_load($_), dirdb_ls unless @resync;
